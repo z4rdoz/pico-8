@@ -2,12 +2,22 @@ pico-8 cartridge // http://www.pico-8.com
 version 8
 __lua__
 -- global variables
-t=0
-last_bullet=3
+t = 0
+last_bullet = 3 
 
 ---------------------
 
 -- pseudo-classes
+function new_cbox(x1, y1, x2, y2)
+	local c = {
+		x1 = x1,
+		y1 = y1,
+		x2 = x2,
+		y2 = y2		
+	}
+	return c
+end
+
 function new_player()
 	local p = {
 		health = 100
@@ -16,18 +26,19 @@ function new_player()
 end
 
 function new_enemy(x,y)
-	local e ={
-		sp=17,
-		init_x=x,
-		init_y=y,
-		x=x,
-		y=y,
-		r=10,
+	local e = {
+		sp = 17,
+		init_x = x,
+		init_y = y,
+		x = x,
+		y = y,
+		r = 10,
+		box = new_cbox(0, 0, 7, 6),
 	 update=function(self)
-			self.x=self.init_x+
-				(sin(t/50)*self.r)
-			self.y=self.init_y+
-				(cos(t/50)*self.r)
+			self.x = self.init_x +
+				(sin(t/50) * self.r)
+			self.y = self.init_y +
+				(cos(t/50) * self.r)
 	 end	 
  }
  return e
@@ -35,14 +46,15 @@ end
 
 function new_ship(x, y)
 	local s = {
-		sp=1,
-		x=x,
-		y=y,
-		update=function(self)
-			if(t%6<3) then
-				ship.sp=1
+		sp = 1,
+		x = x,
+		y = y,
+		box = new_cbox(0, 2, 7, 5),
+		update = function(self)
+			if (t%6<3) then
+				ship.sp = 1
 			else
-				ship.sp=2
+				ship.sp = 2
 			end
 		end
 		}
@@ -50,12 +62,11 @@ function new_ship(x, y)
 end
 
 function new_bullet()
-	local b = {
-		sp=3,
-		x=ship.x,
-		y=ship.y,
-		dx=0,
-		dy=-3,	
+	local b = {		
+		x = ship.x,
+		y = ship.y,		
+		dx = 0,
+		dy = -3,			
 		update=function(self)
 			self.x += self.dx
 			self.y += self.dy
@@ -65,7 +76,11 @@ function new_bullet()
 		end	
 	}
 	if last_bullet == 3 then
-		b.sp=4
+		b.sp = 4
+		b.box = new_cbox(0, 0, 0, 1)
+	else
+		b.sp = 3
+		b.box = new_cbox(7, 0, 7, 1)
 	end
 	last_bullet = b.sp
 	return b
@@ -76,6 +91,23 @@ end
 function fire()
 	b = new_bullet()
 	add(bullets,b)
+end
+
+function get_collision_box(s)
+	local sbox = {
+		x = s.x + s.box.x1,
+		y = s.y + s.box.y1,
+		width = s.box.x2 - s.box.x1,
+		height = s.box.y2 - s.box.y1,
+	}
+	return sbox
+end
+
+function collides_with(s1, s2)
+	local a = get_collision_box(s1)
+	local b = get_collision_box(s2)
+	return (abs(a.x - b.x) * 2 < (a.width + b.width)) and
+         (abs(a.y - b.y) * 2 < (a.height + b.height))
 end
 
 --------------------
@@ -119,10 +151,10 @@ function _update()
 		e:update()
 	end
 	
-	if btn(0) then ship.x-=1 end
-	if btn(1) then ship.x+=1 end
-	if btn(2) then ship.y-=1 end
-	if btn(3) then ship.y+=1 end
+	if btn(0) then ship.x -= 1 end
+	if btn(1) then ship.x += 1 end
+	if btn(2) then ship.y -= 1 end
+	if btn(3) then ship.y += 1 end
 	if btnp(4) then fire() end
 end
 
@@ -131,18 +163,27 @@ function _draw()
 	palt()
 	
 	spr(ship.sp,ship.x,ship.y)
-	
+
 	for b in all(bullets) do
 		spr(b.sp,b.x,b.y)
 	end
 	
+	collisions = 0
+	
 	for e in all(enemies) do
 		spr(e.sp,e.x,e.y)
+		for b in all(bullets) do
+			if collides_with(e, b) then
+				collisions += 1
+			end
+		end
 	end
 	
+	print(collisions)
+
 	--health
- palt(11,true)
- palt(0,false)
+ 	palt(11,true)
+ 	palt(0,false)
 	
 	spr(5,5,5)
 	spr(6,13,5)
@@ -150,7 +191,7 @@ function _draw()
 	local h = player.health*22/100	
   
  
-	for i=1,h do
+	for i = 1,h do
 		line(i+5,6,i+5,7, 8)
 	end 
 end
