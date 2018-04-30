@@ -80,10 +80,7 @@ c_anim = object:extend(function(class)
 		add(update_objects,self)
 	end
 	function class:update()		
-		--this function is very.... dumb. i wanted to avoid adding an update method
-		--because i'm still not sure what the performance hit is yet, and this might be enough		
-		--todo make this fps not dumb and actually fps, instead of decimal
-		if not self.paused and (self.last_t + self.fps) < time() then
+		if not self.paused and (self.last_t + 1/self.fps) < time() then
 			self.current_index += 1
 			if self.current_index > #self.spritesheet then
 				self.current_index = 1
@@ -199,7 +196,7 @@ c_ship = object:extend(function(class)
 		self.firing_cooldown = c_cooldown:new(0.12)
 		
 		self.animations = c_animhandler:new()
-		self.animations:add(c_anim:new("idle", {1,2}, 0.1))
+		self.animations:add(c_anim:new("idle", {1,2}, 15))
 
 		add(update_objects,self)
 		add(draw_objects,self)
