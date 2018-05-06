@@ -18,12 +18,18 @@ function object:__getinstance()
   return o
 end
 
-function object:init()
+function object:init()  
 end
 
 function object:delete()
 	del(update_objects,self)
-	del(draw_objects,self)
+	del(draw_objects,self)	
+
+	--arrays to try to delete from
+	--this could be performance hindering; check later
+	--also consider one master table with properties ('update, draw, enemy, etc.')
+	del(bullets, self)
+	del(enemies, self)
 end
 
 function object:new(...)
@@ -52,14 +58,18 @@ end
 ---------------------
 
 -- classes
+
 c_cooldown = object:extend(function(class)
 	function class:init(cooldown)
 		self.cooldown = cooldown		
-		self.last_try = -1000
+		self.last_try = -1000		
 	end
-	function class:try()
+	function class:try(new_cooldown)
 		if (self.last_try + self.cooldown) <= time() then
 			self.last_try = time()
+			if new_cooldown then
+				self.cooldown = new_cooldown
+			end
 			return true
 		else
 			return false
@@ -152,24 +162,30 @@ end)
 --enemy states:
 -- 0: get to position
 -- 1: start attacking
-c_enemy = object:extend(function(class)
+c_enemy = object:extend(function(class, parent)
 	function class:init(x,y)
 		self.sprite = 17
 		self.pos_x = x
 		self.pos_y = y
 		self.x = x
-		self.y = -20
+		self.y = y
 		self.r = 15
 		self.box = c_box:new(0, 0, 7, 7)
 		self.state = 0	
 		self.health = 10		
 		self.flash = false	
+		self.firing_cooldown = c_cooldown:new(2)
 		add(update_objects,self)
 		add(draw_objects,self)
 	end
 
 	function class:update()		
 		self.y += 0.5
+
+		if (self.firing_cooldown:try(1 + rnd(2))) then				
+			add(bullets, c_bullet:new(bullet_types.enemy_1, self.x, self.y, makevec2d(-0.5,3)))
+			add(bullets, c_bullet:new(bullet_types.enemy_1, self.x, self.y, makevec2d(0.5,3)))
+		end
 		-- if self.state == 0 then				
 		-- self.x = lerp1d(self.x, self.pos_x, 0.05)
 		-- self.y = lerp1d(self.y, self.pos_y, 0.05)
@@ -186,10 +202,12 @@ c_enemy = object:extend(function(class)
 	function class:hurt(modifier)
 		self.health -= modifier
 		self.flash = true
-		if self.health == 0 then
+		self.y -= 1
+		if self.health <= 0 then
 			self:delete()
 		end
 	end
+
 end)
 
 c_ship = object:extend(function(class)
@@ -205,7 +223,7 @@ c_ship = object:extend(function(class)
 
 		add(update_objects,self)
 		add(draw_objects,self)
-	end
+	end	
 
 	function class:update()	
 		-- if (t%6<3) then
@@ -226,36 +244,50 @@ c_ship = object:extend(function(class)
 	function class:fire()	
 		if self.firing_cooldown:try() then	
 			local x,y = self.x,self.y		
-			add(bullets, c_bullet:new(x,y))
-			add(bullets, c_bullet:new(x+7,y))
+			add(bullets, c_bullet:new(bullet_types.player_default, x, y, makevec2d(0,-3)))
+			add(bullets, c_bullet:new(bullet_types.player_default, x+7, y, makevec2d(0,-3)))
 		end
+	end
+
+	function class:draw()
+		if self.has_shield then
+			spr(20, self.x-4, self.y-3, 2, 2)
+		end
+	end
+	
+	function class:hurt()
+		object.delete(self)
 	end
 end)
 
+bullet_types = {
+	player_default = "player_default",
+	enemy_1 = "enemy_1"
+}
+
 c_bullet = object:extend(function(class)
-	function class:init(x, y)
-		self.sprite = 4
-		self.box = c_box:new(0,0,0,1)
+	function class:init(type, x, y, vector_direction)	
+		if type == bullet_types.player_default then
+			self.sprite = 4
+			self.box = c_box:new(0,0,0,1)
+		elseif type == bullet_types.enemy_1 then
+			self.sprite = 3
+			self.box = c_box:new(3,3,4,4)
+		end
+		self.type = type
+		self.direction = vector_direction	
 		self.x = x		
 		self.y = y
-		self.dx = 0
-		self.dy = -3
-
 		add(update_objects,self)
 		add(draw_objects,self)
 	end
 
 	function class:update()
-		self.x += self.dx
-		self.y += self.dy
+		self.x += self.direction.x
+		self.y += self.direction.y
 		if is_offscreen(self.x,self.y) then
 			self:delete()		
 		end
-	end
-
-	function class:delete()
-		object:delete()
-		del(bullets,self)
 	end
 end)
 
@@ -288,6 +320,51 @@ function collides_with(s1, s2, strict)
 			(a.y < b.y + b.height) and
 			(a.height + a.y > b.y)
 	end
+end
+
+-- define a new metatable to be shared by all vectors
+local vector_mt = {}
+-- function to create a new vector
+function makevec2d(x, y)
+    local t = {
+        x = x,
+        y = y
+    }
+    setmetatable(t, vector_mt)
+    return t
+end
+
+-- define some vector operations such as addition, subtraction:
+function vector_mt.__add(a, b)
+    return makevec2d(
+        a.x + b.x,
+        a.y + b.y
+    )
+end
+
+function vector_mt.__sub(a, b)
+    return makevec2d(
+        a.x - b.x,
+        a.y - b.y
+    )
+end
+
+-- more fancy example, implement two different kinds of multiplication:
+-- number*vector -> scalar product
+-- vector*vector -> cross product
+-- don't worry if you're not a maths person, this isn't important :)
+function vector_mt.__mul(a, b)
+    if type(a) == "number" then
+        return makevec2d(b.x * a, b.y * a)
+    elseif type(b) == "number" then
+        return makevec2d(a.x * b, a.y * b)
+    end
+    return a.x * b.x + a.y * b.y
+end
+
+-- check if two vectors with different addresses are equal to each other
+function vector_mt.__eq(a, b)
+    return a.x == b.x and a.y == b.y
 end
 
 --------------------
@@ -336,9 +413,15 @@ current_part = 0
 function next_part()
 	current_part += 1
 	if current_part == 1 then
-		add(enemies, c_enemy:new(20,20))
-		add(enemies, c_enemy:new(60,30))
-		add(enemies, c_enemy:new(100,10))
+		add(enemies, c_enemy:new(20,-20))
+		add(enemies, c_enemy:new(60,-30))
+		add(enemies, c_enemy:new(100,-20))
+
+		add(enemies, c_enemy:new(30,-250))
+		add(enemies, c_enemy:new(50,-300))
+		add(enemies, c_enemy:new(70,-300))
+		add(enemies, c_enemy:new(90,-300))
+		add(enemies, c_enemy:new(110,-250))
 	end
 end
 
@@ -368,28 +451,28 @@ end
 function _draw()
 	cls()
 	palt()
-
-	--print(stat(1),0,0,7)
-
-	--spr(ship.sprite,ship.x,ship.y)
-
-	-- for b in all(bullets) do
-	-- 	spr(b.sprite,b.x,b.y)
-	-- end
-		
-	for e in all(enemies) do
-		-- spr(e.sprite,e.x,e.y)
-		-- print(e.x .. ", " .. e.y)
-		for b in all(bullets) do
-			if collides_with(e, b) then
-				e:hurt(1)
-				b:delete()				
-				if e.health == 0 then
-					del(enemies,e)
-				end				
+			
+	for b in all(bullets) do
+		if b.type == bullet_types.player_default then
+			for e in all(enemies) do
+				if collides_with(e, b) then
+					e:hurt(1)
+					b:delete()											
+				end
 			end
-		end
+		elseif b.type == bullet_types.enemy_1 then
+			if collides_with(ship,b) then
+				b:delete()
+				ship:hurt()
+			end
+		end		
 	end
+
+	for e in all(enemies) do
+		if collides_with(e,ship) then
+			ship:hurt()
+		end	
+	end	
 
 	local anim, sprite, width, height	
 	for	d in all(draw_objects) do	
@@ -413,11 +496,12 @@ function _draw()
 			d.flash = false
 		end
 		spr(sprite, d.x, d.y, width, height)	
-	end
 
-	if ship.has_shield then
-		spr(20, ship.x-4, ship.y-3, 2, 2)
+		if d.draw then
+			d:draw()
+		end
 	end
+		
 
 	--health
  	palt(11,true)
@@ -435,12 +519,12 @@ end
 --------------------
 
 __gfx__
-0000000000000000000000000000000aa0000000b6666666666666666666666b0000000000000000000000000000000000000000000000000000000000000000
-0000000000011000000110000000000aa00000006000000000000000000000060000000000000000000000000000000000000000000000000000000000000000
-00700700c0acca0cc0acca0c00000000000000006000000000000000000000060000000000000000000000000000000000000000000000000000000000000000
-00077000c01cc10cc01cc10c0000000000000000b6666666666666666666666b0000000000000000000000000000000000000000000000000000000000000000
-00077000cc1cc1cccc1cc1cc0000000000000000bbbbbbbbbbbbbbbbbbbbbbbb0000000000000000000000000000000000000000000000000000000000000000
-0070070011188111111881110000000000000000bbbbbbbbbbbbbbbbbbbbbbbb0000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000a0000000b6666666666666666666666b0000000000000000000000000000000000000000000000000000000000000000
+00000000000110000001100000000000a00000006000000000000000000000060000000000000000000000000000000000000000000000000000000000000000
+00700700c0acca0cc0acca0c000aa000000000006000000000000000000000060000000000000000000000000000000000000000000000000000000000000000
+00077000c01cc10cc01cc10c00aa9a0000000000b6666666666666666666666b0000000000000000000000000000000000000000000000000000000000000000
+00077000cc1cc1cccc1cc1cc00a9aa0000000000bbbbbbbbbbbbbbbbbbbbbbbb0000000000000000000000000000000000000000000000000000000000000000
+0070070011188111111881110009a00000000000bbbbbbbbbbbbbbbbbbbbbbbb0000000000000000000000000000000000000000000000000000000000000000
 00000000001a01000010a1000000000000000000bbbbbbbbbbbbbbbbbbbbbbbb0000000000000000000000000000000000000000000000000000000000000000
 000000000000a000000a00000000000000000000bbbbbbbbbbbbbbbbbbbbbbbb0000000000000000000000000000000000000000000000000000000000000000
 00000000023333203233332002333323000008888880000000000000000000000000000000000000000000000000000000000000000000000000000000000000
