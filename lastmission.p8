@@ -162,7 +162,8 @@ c_enemy = object:extend(function(class)
 		self.r = 15
 		self.box = c_box:new(0, 0, 7, 7)
 		self.state = 0	
-		self.health = 10			
+		self.health = 10		
+		self.flash = false	
 		add(update_objects,self)
 		add(draw_objects,self)
 	end
@@ -183,7 +184,11 @@ c_enemy = object:extend(function(class)
 	end
 
 	function class:hurt(modifier)
-		self.health += modifier
+		self.health -= modifier
+		self.flash = true
+		if self.health == 0 then
+			self:delete()
+		end
 	end
 end)
 
@@ -247,6 +252,11 @@ c_bullet = object:extend(function(class)
 			self:delete()		
 		end
 	end
+
+	function class:delete()
+		object:delete()
+		del(bullets,self)
+	end
 end)
 
 --------------------
@@ -262,11 +272,22 @@ function get_collision_box(s)
 	return sbox
 end
 
-function collides_with(s1, s2)
+function collides_with(s1, s2, strict)
 	local a = get_collision_box(s1)
 	local b = get_collision_box(s2)
-	return (abs(a.x - b.x) * 2 < (a.width + b.width)) and
-         (abs(a.y - b.y) * 2 < (a.height + b.height))
+	--return (abs(a.x - b.x) * 2 < (a.width + b.width)) and
+     --    (abs(a.y - b.y) * 2 < (a.height + b.height))
+	if not strict then
+		return (a.x <= b.x + b.width) and 
+			(a.x + a.width >= b.x) and
+			(a.y <= b.y + b.height) and
+			(a.height + a.y >= b.y)
+	else
+		return (a.x < b.x + b.width) and 
+			(a.x + a.width > b.x) and
+			(a.y < b.y + b.height) and
+			(a.height + a.y > b.y)
+	end
 end
 
 --------------------
@@ -361,25 +382,37 @@ function _draw()
 		-- print(e.x .. ", " .. e.y)
 		for b in all(bullets) do
 			if collides_with(e, b) then
-				e:delete()
-				del(enemies,e)
-				b:delete()
-				del(bullets,b)
+				e:hurt(1)
+				b:delete()				
+				if e.health == 0 then
+					del(enemies,e)
+				end				
 			end
 		end
 	end
 
-	local anim
-	for	d in all(draw_objects) do
+	local anim, sprite, width, height	
+	for	d in all(draw_objects) do	
+		pal()
+		width = 1
+		height = 1	
 		if d.animations then			
-			anim = d.animations:get_animation()		
-			print(anim.last_t .. ", " .. time())	
-			if anim then							
-				spr(anim:get_sprite(), d.x, d.y, anim.width, anim.height)
+			anim = d.animations:get_animation()	
+			width = anim.width
+			width = anim.height				
+			if anim then		
+				sprite = anim:get_sprite()									
 			end			
 		elseif d.sprite then
-			spr(d.sprite, d.x, d.y)
-		end		
+			sprite = d.sprite			
+		end	
+		if d.flash then
+			for	i=0,15 do
+				pal(i,8)
+			end
+			d.flash = false
+		end
+		spr(sprite, d.x, d.y, width, height)	
 	end
 
 	if ship.has_shield then
@@ -397,7 +430,7 @@ function _draw()
 		line(i+5,6,i+5,7, 8)
 	end 
 
-	
+	print(#enemies .. ", " .. #bullets)	
 end
 --------------------
 
